@@ -11,9 +11,9 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAnyOrigin",
-        builder =>
+        policyBuilder =>
         {
-            builder.AllowAnyOrigin() // Allow any host to access
+            policyBuilder.AllowAnyOrigin() // Allow any host to access
                    .AllowAnyHeader()
                    .AllowAnyMethod();
         });
@@ -52,7 +52,6 @@ var products = new List<Product>
 
 // Endpoint to get all products
 app.MapGet("/all-products", () => products)
-   .WithName("GetAllProducts")
-   .WithOpenApi();
+    .WithName("GetAllProducts");
 
 app.Run("http://0.0.0.0:8080");
