@@ -150,7 +150,7 @@ func main() {
 	http.HandleFunc("/products", productsHandler) // Endpoint for products
 
 	// Define the port to listen on
-	port := "8090" // Default port for the Go app
+	port := "8080" // Default port for the Go app
 	if p := os.Getenv("PORT"); p != "" {
 		port = p
 	}
