@@ -1,12 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"time" // Added for http.Client timeout
+	"time"
 )
 
 // LoginRequest represents the structure of the incoming JSON request for login
@@ -20,13 +21,38 @@ type LoginResponse struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Product struct to match the structure of products from the Dotnet service
+// Product struct to match the structure of products from the Dotnet service (now includes Stock)
 type Product struct {
 	Id          string  `json:"id"`
 	Name        string  `json:"name"`
-	Price       float64 `json:"price"` // Use float64 for decimal in Go
+	Price       float64 `json:"price"`
 	ImageUrl    string  `json:"imageUrl"`
 	Description string  `json:"description"`
+	Stock       int     `json:"stock"` // New: Stock quantity
+}
+
+// OrderItemRequest from React app
+type OrderItemRequest struct {
+	Id       string  `json:"id"`
+	Name     string  `json:"name"`
+	Quantity int     `json:"quantity"`
+	Price    float64 `json:"price"`
+}
+
+// PlaceOrderRequest from React app to Go
+type PlaceOrderRequest struct {
+	Items           []OrderItemRequest `json:"items"`
+	TotalAmount     float64            `json:"totalAmount"`
+	DeliveryAddress string             `json:"deliveryAddress"`
+	OrderDate       string             `json:"orderDate"`
+}
+
+// PlaceOrderResponse from Dotnet to Go, and then Go to React
+type PlaceOrderResponse struct {
+	Success         bool     `json:"success"`
+	Message         string   `json:"message,omitempty"`
+	OrderId         string   `json:"orderId,omitempty"`
+	OutOfStockItems []string `json:"outOfStockItems,omitempty"` // New: List of items that caused failure
 }
 
 // authHandler handles authentication requests
@@ -131,23 +157,103 @@ func productsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// --- This is where you can add logic to modify the 'products' slice if needed ---
-	// Example: Add a new field, filter, sort, etc.
-	// For now, we just re-encode it as is.
-	// --------------------------------------------------------------------------------
-
 	// Re-encode the products slice as JSON and write to the response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(products); err != nil {
 		log.Printf("Error encoding products for response: %v", err)
-		// Note: Cannot send HTTP error after headers are written, just log.
+	}
+}
+
+// orderHandler proxies and processes order requests to the Dotnet products-service
+func orderHandler(w http.ResponseWriter, r *http.Request) {
+	// Set CORS headers for any origin
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	// Handle preflight OPTIONS request
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	dotnetProductsApiURL := os.Getenv("DOTNET_PRODUCTS_API_URL")
+	if dotnetProductsApiURL == "" {
+		log.Println("DOTNET_PRODUCTS_API_URL environment variable is not set. Using default 'http://localhost:8080'.")
+		dotnetProductsApiURL = "http://localhost:8080" // Default for development
+	}
+
+	// Construct the full URL for the Dotnet service's place-order endpoint
+	targetURL := fmt.Sprintf("%s/place-order", dotnetProductsApiURL)
+	log.Printf("Proxying order request to Dotnet Products Service: %s", targetURL)
+
+	// Decode the incoming order request from React
+	var orderRequest PlaceOrderRequest
+	err := json.NewDecoder(r.Body).Decode(&orderRequest)
+	if err != nil {
+		log.Printf("Error decoding order request from client: %v", err)
+		http.Error(w, "Invalid order request body", http.StatusBadRequest)
+		return
+	}
+
+	// Re-encode the order request to send to Dotnet service
+	requestBodyBytes, err := json.Marshal(orderRequest)
+	if err != nil {
+		log.Printf("Error marshalling order request for Dotnet: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	// Create a new HTTP POST request to the Dotnet service
+	client := &http.Client{Timeout: 10 * time.Second}
+	proxyReq, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(requestBodyBytes))
+	if err != nil {
+		log.Printf("Error creating proxy order request: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+	proxyReq.Header.Set("Content-Type", "application/json") // Ensure JSON content type for Dotnet
+
+	// Perform the request to Dotnet
+	proxyResp, err := client.Do(proxyReq)
+	if err != nil {
+		log.Printf("Error placing order with Dotnet service: %v", err)
+		http.Error(w, "Failed to place order with backend service", http.StatusBadGateway)
+		return
+	}
+	defer proxyResp.Body.Close()
+
+	// Decode the response from the Dotnet service
+	var orderResponse PlaceOrderResponse
+	err = json.NewDecoder(proxyResp.Body).Decode(&orderResponse)
+	if err != nil {
+		log.Printf("Error decoding order response from Dotnet service: %v", err)
+		http.Error(w, "Failed to parse order response from backend", http.StatusInternalServerError)
+		return
+	}
+
+	// --- This is where you can add logic to modify the 'orderResponse' if needed ---
+	// For now, we just re-encode it as is.
+	// --------------------------------------------------------------------------------
+
+	// Re-encode the Dotnet response and send it back to React
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(proxyResp.StatusCode) // Pass through the status code from Dotnet
+	if err := json.NewEncoder(w).Encode(orderResponse); err != nil {
+		log.Printf("Error encoding order response for client: %v", err)
 	}
 }
 
 func main() {
 	// Register the handlers
 	http.HandleFunc("/auth", authHandler)
-	http.HandleFunc("/products", productsHandler) // Endpoint for products
+	http.HandleFunc("/products", productsHandler)
+	http.HandleFunc("/order", orderHandler) // New endpoint for order processing
 
 	// Define the port to listen on
 	port := "8080" // Default port for the Go app
@@ -155,8 +261,8 @@ func main() {
 		port = p
 	}
 
-	fmt.Printf("Go authentication and products processing proxy service listening on :%s\n", port)
-	log.Printf("Go authentication and products processing proxy service starting on port %s", port)
+	fmt.Printf("Go authentication, products and order processing proxy service listening on :%s\n", port)
+	log.Printf("Go authentication, products and order processing proxy service starting on port %s", port)
 	// Start the HTTP server
 	err := http.ListenAndServe(":"+port, nil)
 	if err != nil {
