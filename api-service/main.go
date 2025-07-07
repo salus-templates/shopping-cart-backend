@@ -230,8 +230,6 @@ func orderHandler(w http.ResponseWriter, r *http.Request) {
 
 	if code := proxyResp.StatusCode; code != http.StatusOK {
 		log.Printf("Error: Dotnet service returned non-OK status: %d", code)
-		http.Error(w, fmt.Sprintf("Backend service error: %d", code), http.StatusBadGateway)
-		return
 	}
 
 	// Decode the response from the Dotnet service
