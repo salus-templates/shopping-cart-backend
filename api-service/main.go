@@ -143,7 +143,7 @@ func productsHandler(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Error: Dotnet service returned non-OK status: %d", resp.StatusCode)
+		log.Printf("An error occured: Dotnet service returned non-OK status: %d", resp.StatusCode)
 		http.Error(w, fmt.Sprintf("Backend service error: %d", resp.StatusCode), http.StatusBadGateway)
 		return
 	}
@@ -229,7 +229,7 @@ func orderHandler(w http.ResponseWriter, r *http.Request) {
 	defer proxyResp.Body.Close()
 
 	if code := proxyResp.StatusCode; code != http.StatusOK {
-		log.Printf("Error: Dotnet service returned non-OK status: %d", code)
+		log.Printf("An error occured: Dotnet service returned non-OK status: %d", code)
 	}
 
 	// Decode the response from the Dotnet service
