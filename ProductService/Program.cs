@@ -1,6 +1,7 @@
 // ProductsService/Program.cs
 
 using ProductService;
+using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,6 +19,13 @@ builder.Services.AddCors(options =>
                    .AllowAnyMethod();
         });
 });
+
+builder.Host.UseSerilog((context, configuration) =>
+    {
+        configuration
+            .ReadFrom.Configuration(context.Configuration) // Read configuration from appsettings.json
+            .Enrich.FromLogContext(); // Ensure enrichers are applied
+    });
 
 var app = builder.Build();
 
