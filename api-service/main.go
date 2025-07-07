@@ -143,7 +143,7 @@ func productsHandler(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Dotnet service returned non-OK status: %d", resp.StatusCode)
+		log.Printf("Error: Dotnet service returned non-OK status: %d", resp.StatusCode)
 		http.Error(w, fmt.Sprintf("Backend service error: %d", resp.StatusCode), http.StatusBadGateway)
 		return
 	}
