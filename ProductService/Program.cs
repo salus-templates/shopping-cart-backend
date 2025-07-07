@@ -7,13 +7,17 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 
+// Configure logging
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole(); // Add console logger
+
 // Configure CORS to allow requests from any origin
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAnyOrigin",
-        policyBuilder =>
+        builder =>
         {
-            policyBuilder.AllowAnyOrigin() // Allow any host to access
+            builder.AllowAnyOrigin() // Allow any host to access
                    .AllowAnyHeader()
                    .AllowAnyMethod();
         });
@@ -22,7 +26,15 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Use CORS policy
-app.UseCors("AllowAnyOrigin"); // Apply the new policy
+app.UseCors("AllowAnyOrigin");
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    // UseDeveloperExceptionPage provides detailed error information in development
+    app.UseDeveloperExceptionPage();
+    // Removed Swagger UI as requested previously
+}
 
 
 // Static list of products (moved from React app)
@@ -54,8 +66,8 @@ var products = new List<Product>
 app.MapGet("/all-products", () => products)
     .WithName("GetAllProducts");
 
-// Endpoint to place an order
-app.MapPost("/place-order", async (PlaceOrderRequest orderRequest) =>
+
+app.MapPost("/place-order", async (PlaceOrderRequest orderRequest, ILogger<Program> logger) =>
 {
     await Task.Delay(500); // Simulate network delay
 
@@ -63,15 +75,23 @@ app.MapPost("/place-order", async (PlaceOrderRequest orderRequest) =>
     foreach (var item in orderRequest.Items)
     {
         var productInStock = products.FirstOrDefault(p => p.Id == item.Id);
-        if (productInStock == null || productInStock.Stock < item.Quantity)
+        if (productInStock == null)
         {
-            outOfStockItems.Add(item.Id); // Add product ID to out of stock list
+            logger.LogError("Order failed: Product with ID '{ProductId}' not found.", item.Id);
+            outOfStockItems.Add(item.Id);
+        }
+        else if (productInStock.Stock < item.Quantity)
+        {
+            logger.LogError("Order failed: Product '{ProductName}' (ID: '{ProductId}') is out of stock. Requested: {RequestedQuantity}, Available: {AvailableStock}",
+                            productInStock.Name, item.Id, item.Quantity, productInStock.Stock);
+            outOfStockItems.Add(item.Id);
         }
     }
 
     if (outOfStockItems.Any())
     {
-        return Results.Ok(new PlaceOrderResponse
+        // Return HTTP 400 Bad Request for out-of-stock items
+        return Results.BadRequest(new PlaceOrderResponse
         {
             Success = false,
             Message = "Order failed: Some items are out of stock or requested quantity exceeds available stock.",
@@ -83,14 +103,17 @@ app.MapPost("/place-order", async (PlaceOrderRequest orderRequest) =>
     foreach (var item in orderRequest.Items)
     {
         var productInStock = products.FirstOrDefault(p => p.Id == item.Id);
-        if (productInStock != null)
+        if (productInStock != null) // Should not be null due to prior check, but good for safety
         {
             productInStock.Stock -= item.Quantity;
+            logger.LogInformation("Stock updated for '{ProductName}' (ID: '{ProductId}'). New stock: {NewStock}",
+                                  productInStock.Name, item.Id, productInStock.Stock);
         }
     }
 
     // Generate a mock order ID
     var orderId = "ORD" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+    logger.LogInformation("Order placed successfully. Order ID: {OrderId}, Delivery Address: {Address}", orderId, orderRequest.DeliveryAddress);
 
     return Results.Ok(new PlaceOrderResponse
     {
