@@ -7,10 +7,6 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddEndpointsApiExplorer();
 
-// Configure logging
-builder.Logging.ClearProviders();
-builder.Logging.AddConsole(); // Add console logger
-
 // Configure CORS to allow requests from any origin
 builder.Services.AddCors(options =>
 {
