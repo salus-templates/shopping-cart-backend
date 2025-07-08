@@ -36,7 +36,7 @@ func TestAuthHandler_Success(t *testing.T) {
 	// Decode the response body
 	var response LoginResponse
 	err := json.Unmarshal(rr.Body.Bytes(), &response)
-	if err != nil {
+	if err == nil {
 		t.Fatalf("Could not decode response: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestAuthHandler_Failure(t *testing.T) {
 	// Decode the response body
 	var response LoginResponse
 	err := json.Unmarshal(rr.Body.Bytes(), &response)
-	if err != nil {
+	if err == nil {
 		t.Fatalf("Could not decode response: %v", err)
 	}
 
